@@ -1,0 +1,65 @@
+---
+- name: Configure and run HTTPD server in Docker containers
+  hosts: myvm
+  become: true
+  vars:
+    docker_httpd_image: httpd
+    docker_httpd_container_name: my_httpd_container
+  tasks:
+    - name: Install required packages for Docker repository setup
+      package:
+        name: dnf-plugins-core
+        state: present
+      when: ansible_pkg_mgr == 'dnf' and ansible_distribution_major_version|int >= 8
+
+    - name: Add Docker GPG key
+      rpm_key:
+        key: https://download.docker.com/linux/centos/gpg
+        state: present
+      when: ansible_pkg_mgr == 'dnf' and ansible_distribution_major_version|int >= 8
+
+    - name: Add Docker repository
+      yum_repository:
+        name: docker-ce-stable
+        description: "Docker CE - Stable"
+        baseurl: https://download.docker.com/linux/centos/8/x86_64/stable
+        gpgcheck: yes
+        enabled: yes
+      when: ansible_pkg_mgr == 'dnf' and ansible_distribution_major_version|int >= 8
+
+    - name: Install Docker
+      package:
+        name: docker-ce
+        state: present
+
+    - name: Start and enable Docker service
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Pull the httpd server image from Docker Hub
+      community.docker.docker_image:
+        name: "{{ docker_httpd_image }}"
+        source: pull
+    - name: Create mount directory if it does not exist
+      file:
+        path: /pages
+        state: directory
+        mode: '0755'
+
+    - name: Copy the html code to mount directory
+      copy:
+        src: /root/workspace/webpages/index.html
+        dest: /pages/index.html
+
+    - name: Run the Docker container and expose it to the public
+      community.docker.docker_container:
+        name: "{{ docker_httpd_container_name }}"
+        image: "{{ docker_httpd_image }}"
+        ports:
+          - "80:80"
+        restart_policy: always
+        state: started
+        volumes:
+          - "/pages:/usr/local/apache2/htdocs"
